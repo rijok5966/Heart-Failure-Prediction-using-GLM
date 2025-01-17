@@ -1,0 +1,504 @@
+---
+title: "MA5821 - Captsone - Visual Analytics "
+author: "Rijo"
+date: '2023-02-12'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+getwd() # Get the current work directory
+setwd('C:/Users/akila/Documents/DS_Masters_R/Visual Analytics using SAS/Capstone') # set the working directory
+
+# Check the version of the R-studio
+RStudio.Version()
+```
+
+
+# Load the necessary libraries
+```{r}
+library(caTools)
+library(caret)
+library(MASS)
+library(corrplot)
+library(tidyverse)
+library(car)
+library(ggplot2)
+library(ROCR)
+library(car)
+library(summarytools)
+library(dplyr)
+library(lmtest)
+```
+
+
+# Part 1. Load the Data and conduct EDA
+```{r}
+heart_failure = read.csv("DataClean-fullage.csv") # Load the data 
+str(heart_failure) # structure of the data 
+dim(heart_failure)  # Dimensions of the data set : 6611(Observations) x 53 (columns) 
+summary(heart_failure) # summary statistics of the data 
+#View(heart_failure)
+
+is.na(heart_failure) # Check for missing values
+# Comments: No missing values
+
+names(duplicated(heart_failure)) # Check for duplicated values
+# Comments : No duplicated values
+
+
+# Remove the following variables
+#1. sno - As they do not  contribute in the prediction of heart failure.
+#2. count - This column has a consistent value of 1 for all observations, with no explanation
+heart_failure = heart_failure[,-c(1,45)]
+
+
+# Numerical Variable Analysis
+
+# 1. Using Pair Plot
+psych::pairs.panels(heart_failure[,c(1,4,13,14,15,16,17,19,44,47)], main = "Heart Failure - Pair Plot Analysis")
+
+# Using Correlation Plot
+heart_failure_cor = cor(heart_failure[,c(1,4,13,14,15,16,17,19,44,47)])
+corrplot::corrplot(heart_failure_cor, method = "number",title = "Correlation Plot - Numerical Variables")
+
+# Scatter Plot : Urea vs Creatinine
+plot(heart_failure$urea,heart_failure$creatinine)
+
+summary(heart_failure$urea)
+summary(heart_failure$creatinine)
+
+hist(heart_failure$urea)
+hist(heart_failure$creatinine)
+
+# Comments:  On analysing the pair plot, correlation matrix and scatter , Urea and Creatinine indicates a strong positive correlation (0.74) with each other and hence Creatinine was removed from the data to avoid multicollinearity before proceeding with the analysis.
+
+
+heart_failure = heart_failure[,-c(16)] # Remove Creatinine 
+str(heart_failure)
+psych::pairs.panels(heart_failure[,c(1,4,13,14,15,16,18,43,46)], main = "Heart Failure - Pair Plot Analysis")
+
+heart_failure_cor = cor(heart_failure[,c(1,4,13,14,15,16,18,43,46)])
+corrplot::corrplot(heart_failure_cor, method = "number",title = "Correlation Plot - Numerical Variables")
+
+# There seems to be no multicolinearity amongst the numerical variables now, therefore  we can proceed with the analysis. 
+
+
+# Converting the following columns to factors
+column_names = c('gender','type','outcome','smoking','alcohol','diabetes','hypertension','cad','cardiomyopathy','ckd','raised_cardiac','stable_angina','acs','stemi','atypical_chest_pain','heart_failure','hfref','hfnef','valvular','chb','sick_sinus','acute_kidney','cva_infract','cva_bleed','atrial_fibril','ventricular','psvt','congenital','urinary_tract','neuro_cardiogenic_syncope','orthostatic','infective_endocarditis','deep_venous','pulmonary_embolism','chest_infection','anaemia','severe_anaemia','group_age','group_plate','group_leuk','group_ejectf')
+
+heart_failure[,column_names] = lapply(heart_failure[,column_names],factor)  # Convert the column_names to factor
+str(heart_failure)
+dim(heart_failure) # Dimensions of the updated data set  6611(Observations) x 51 (columns) 
+
+########################################################################################################################
+
+# Frequency of the Response Vairable ( Heart Failure)
+ggplot(heart_failure, aes(x= heart_failure)) +
+geom_bar(fill='red') +  labs(x='Heart Failure') + ggtitle("Heart Failure Frequency Count")
+
+# Frequency count of the response variable
+heart_failure %>% count(heart_failure)
+
+# Frequency Percentage of the Response Variable
+summarytools::freq(heart_failure$heart_failure, order = "freq")
+# OR 
+heart_failure %>% group_by(heart_failure) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+#########################################################################################################################
+
+# HDHI Admissions :  Original data set response variable analysis  
+heart_failure_og = read.csv("HDHI Admission data.csv") # Load the data 
+str(heart_failure_og)
+
+# Frequence Percentage of Heart Failure in the Original data set
+summarytools::freq(heart_failure_og$HEART.FAILURE, order = "freq")
+
+```
+
+Comments: The data shows that out of 6611 observations, 52.22% of the patients without Heart Failure (0) and 47.78% with heart failure(1), indicating a fairly balanced data. The original data (HDHI Admission data) had an highly imbalanced dataset with 71.05% patients with no heart failure as compared to 28.95% patients with heart failure.
+
+
+# Part 2. GLM with all Link Functions
+```{r}
+# ?glm
+#### Logistic Regression on the Whole dataset using different Link Functions
+
+# 1. Using the default 'logit' link function 
+glm_hf_1 = glm(heart_failure ~ . , data = heart_failure , family = binomial(link = "logit"))
+summary(glm_hf_1)  # AIC : 181.02
+
+# 1. Using the default 'prob' link function 
+glm_hf_2 = glm(heart_failure ~ . , data = heart_failure , family = binomial(link = "probit"))
+summary(glm_hf_2)  # AIC : 182
+
+glm_hf_3 = glm(heart_failure ~ . , data = heart_failure , family = binomial(link = "cloglog"))
+summary(glm_hf_3) # AIC: 181.29
+
+```
+
+By assessing the AIC scores, all 3 link functions (logit, probit, and cloglog) gives approximately similar AIC values.
+AIC - logit = 181.02
+AIC - probit = 182
+AIC - clog-log = 181.29
+
+Therefore , we use the logit link function as it has the least AIC values as compared to the other link functions. Logit function is also used because it is easier to interpret the results of a glm using logit link functions as compared to the other link functions.
+
+
+# Part 3. GLM using Logit Link Function with significant predictors
+```{r}
+
+# Using all variables
+glm_hf_1 = glm(heart_failure ~ . , data = heart_failure , family = binomial(link = "logit"))
+summary(glm_hf_1)  # AIC: 181.02
+
+# Using significant predictors : alcohol, hfref , hfnef, valvular, ventricular, congenital
+
+glm_hf_1_1 = glm(heart_failure ~  alcohol + hfref + hfnef + valvular + ventricular +congenital , data = heart_failure , family = binomial(link = "logit"))
+summary(glm_hf_1_1)  # AIC: 101.3
+
+# Removing ventricular as its value is 0.109418, meaning it is not significantly different from 0.
+glm_hf_1_2 = glm(heart_failure ~  alcohol + hfref + hfnef + valvular  + congenital , data = heart_failure , family = binomial(link = "logit"))
+summary(glm_hf_1_2)  # AIC: 101.28 
+
+```
+# Significant Predictors 1:
+alcohol, hfref1 , hfnef1, valvular1, ventricular1, congenital1
+
+On removing 'Ventricular' , the AIC score marginally decreases by 0.02, indicating a better model performance.
+After eliminating the variable ventricular, all other variables appear to have a significant impact on the response variable( heart failure)
+
+# Singicanct featrues 2: 
+alcohol, hfref1 , hfnef1, valvular1, congenital1
+
+Using the likelihood ratio test to determine each model's deviance using their log-likelihood. Using this procedure we ensure we get a model with a favorable variance and bias.
+
+#The null and alternative hypothesis is stated as follows:
+H0:  The full and nested models, both fit the data equally well. Therefore, use Nested Model (model with less features).
+Ha: The full model significantly outperforms the nested model in terms of data fit. Therefore use the model with all predictors ( full model).
+```{r}
+models_1_12_anova = anova(glm_hf_1,glm_hf_1_2, test = "Chisq")
+models_1_12_anova
+
+models_11_12_anova = anova(glm_hf_1_1,glm_hf_1_2, test = "Chisq")
+models_11_12_anova
+
+```
+Analysis of Deviance Table
+
+  Resid. Df    Resid. Dev  Df    Deviance  Pr(>Chi)
+1      6604     87.302                     
+2      6605     89.279     -1    -1.9761   0.1598
+
+The p-value 0.1598 is greater than 0.05 ( assumed level of significance) therfore H0 is TRUE.Also, since the Deviance is -1.9761, and there is only a marginal difference in the Residual Deviance, it is concluded that the models are essentially same and therefore the lesser complex model was used for analysis.
+
+# Part 4. Step Wise Regression using Backward selection
+The Stepwise Regression method is using the backward selection is also used to double check, if the selected variables match with the original model.
+```{r}
+
+# Using the backward logistic regression for feature selection
+# BACKWARD LOGISTIC REGRESSION
+
+stepwise_backward_glm_hf_1 = step(glm_hf_1, direction = "backward") # Applying the backward step wise method 
+summary(stepwise_backward_glm_hf_1)  # summary of the step wise method  : AIC: 100.15
+vif(stepwise_backward_glm_hf_1)
+
+
+# BOTH (FORWARD + BACWARD LOGISTIC REGRESSION) to double-check the backward regression results
+step_glm_hf_1 = step(glm_hf_1, direction = "both")   
+summary(step_glm_hf_1)  # summary of the model
+vif(step_glm_hf_1)
+
+```
+# > vif(stepwise_backward_glm_hf_1)
+#       age    alcohol       urea      hfref      hfnef   valvular congenital 
+#  1.348054   1.279747   1.355055   3.480893   2.218116   2.101222   1.422405 
+
+  The step wise method (backward method)  was used to determine the variables which have a significant influence in detecting heart failure in patients. The stepwise method using the "both" method was used to confirm the results of the backward method.
+Using the backward method "age" and "urea" were included in the model. It is also observed that the AIC value has reduced from 100.28 to 100.15, even after the inclusion of "age" and "urea". 
+  Variance inflation factor (VIF) was used to test the assumption of little or no multicollinearity between variables. VIF values above 10 indicate high collinearity, and VIFs between 5 and 10 indicate the need for further investigation. The VIF values for all important features were between 1.28 and 3. 8, indicating no collinearity between the variables.
+  on further research , it was found that Age and Urea are considered to be essential factors while assesing the risk of heart failure, therefore "age" and "urea" were added to the model, along with the exisisting features.
+observing the standard errors. there are no large values, therefore we can conclude that there is no complete or quasi separation.
+
+# Part 5. GLM - Logistic Regression using selected features
+```{r}
+# Create a new subset of the data with selected features 
+# Age , Urea, Alcohol, Hfref, Hfnef, Valvular , Congenital
+
+heart_failure_new = heart_failure[,c(1,7,15,23,24,25,26,35)]
+str(heart_failure_new)
+
+heart_failure__new_cor = cor(heart_failure_new[,c(1,3)])
+corrplot::corrplot(heart_failure__new_cor, method = "number",title = "Correlation Plot - Numerical Variables")
+
+
+# Data Partioning
+set.seed(126) # Set the seed for model consistency 
+sample = sample.split(heart_failure_new$heart_failure , SplitRatio = .80) # Split the data 
+heart_failure_train = subset(heart_failure_new, sample == TRUE) # Training data 
+heart_failure_test = subset(heart_failure_new, sample == FALSE) # Test data
+dim(heart_failure_train) # Dimensions of train data :5289 x  8
+dim(heart_failure_test)  # Dimensions of test data : 1322 x 8
+
+# Logistic Regression on Training Data
+glm_hf_1_3 = glm(heart_failure ~ . , data = heart_failure_train , family = binomial)
+summary(glm_hf_1_3)
+
+```
+> summary(glm_hf_1_3)
+
+Call:
+glm(formula = heart_failure ~ ., family = binomial, data = heart_failure_train)
+
+Deviance Residuals: 
+    Min       1Q   Median       3Q      Max  
+-3.8481  -0.0278  -0.0045   0.0000   3.9394  
+
+Coefficients:
+              Estimate Std. Error z value Pr(>|z|)    
+(Intercept) -5.927e+00  2.092e+00  -2.834  0.00460 ** 
+age         -2.124e-02  3.163e-02  -0.672  0.50185    
+alcohol1    -3.781e+00  1.501e+00  -2.519  0.01176 *  
+urea        -1.455e-02  6.366e-03  -2.286  0.02226 *  
+hfref1       1.604e+01  1.719e+00   9.332  < 2e-16 ***
+hfnef1       3.325e+01  1.816e+03   0.018  0.98539    
+valvular1    3.408e+00  1.419e+00   2.401  0.01634 *  
+congenital1 -6.761e+00  1.748e+00  -3.867  0.00011 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+(Dispersion parameter for binomial family taken to be 1)
+
+    Null deviance: 7321.666  on 5288  degrees of freedom
+Residual deviance:   54.959  on 5281  degrees of freedom
+AIC: 70.959
+
+Number of Fisher Scoring iterations: 22
+===============================================================================
+On analyzing the output hfnef1 has a higher Standard Error, indicating Quasi-Complete Sepearation. However, in this case , the 'do nothing' strategy was used, as the likelihood of other predictors were still valid.
+
+```{r}
+#table(heart_failure_new$hfnef,heart_failure_new$hfnef)
+#table(heart_failure_new$heart_failure,heart_failure_new$congenital)
+logLik(glm_hf_1_3)
+
+# Checking for Deviance : LIKELIHOOD RATIO TEST
+deviance(glm_hf_1_3) - deviance(glm_hf_1_31)
+1 - pchisq(-4919.272,1)
+
+# OR 
+models_3_31 = anova(glm_hf_1_3,glm_hf_1_31, test = "Chisq")
+models_3_31
+
+# OR 
+models_3_31 = lrtest(glm_hf_1_3,glm_hf_1_31, test = "Chisq")
+models_3_31
+
+# Logistic Regression on Training Data : WITHOUT HFNEF
+glm_hf_1_31 = glm(heart_failure ~ age+alcohol+urea+hfref+valvular+congenital , data = heart_failure_train , family = binomial)
+summary(glm_hf_1_31)
+
+# Prediction - on test data
+predict_heart_failure = predict(glm_hf_1_31, heart_failure_test , type = "response")
+
+# Set a prediction class
+pred_class_heart_failure = as.factor(ifelse(predict_heart_failure > 0.5 , 1,0))
+
+# Confusion matrix - Logistic Regression
+confusionMatrix(pred_class_heart_failure , heart_failure_test$heart_failure)
+
+# Contingency Table
+(table_hf = table(pred_class_heart_failure , heart_failure_test$heart_failure))
+
+# Accuracy
+(accuracy_log_reg = sum(diag(table_hf))/sum(table_hf)*100)
+
+# ROC PLOT - LOGISTIC REGRESSION 
+pred_roc_log_reg = prediction(predict_heart_failure , heart_failure_test$heart_failure)  
+perf = performance(pred_roc_log_reg, "tpr", "fpr")
+plot(perf, col = "red", main="ROC curve - Logistic Regression ", xlab= "Specificity", ylab="Sensitivity")
+abline(0, 1)
+  
+# Area under the curve
+(auc_log_reg = performance(pred_roc_log_reg, "auc")@y.values)
+
+```
+CONCLUSION : Without HFNEF THE ACCURACY DROPS OF 76.09682 hence we go ahead with HFNEF
+On conducting the Over-dispersion test , we see a large difference in the Deviance values, hence we continue the analysis with the HFNEF variable.
+
+# Part 4. Resuming with HFNEF : Prediction on the Test Data
+```{r}
+# Prediction - on test data
+predict_heart_failure = predict(glm_hf_1_3, heart_failure_test , type = "response")
+
+# Set a prediction class
+pred_class_heart_failure = as.factor(ifelse(predict_heart_failure > 0.5 , 1,0))
+
+# Confusion matrix - Logistic Regression
+confusionMatrix(pred_class_heart_failure , heart_failure_test$heart_failure)
+
+# Contingency Table
+(table_hf = table(pred_class_heart_failure , heart_failure_test$heart_failure))
+
+# Accuracy
+(accuracy_log_reg = sum(diag(table_hf))/sum(table_hf)*100)
+
+# ROC PLOT - LOGISTIC REGRESSION 
+pred_roc_log_reg = prediction(predict_heart_failure , heart_failure_test$heart_failure)  
+perf = performance(pred_roc_log_reg, "tpr", "fpr")
+plot(perf, col = "red", main="ROC curve - Logistic Regression ", xlab= "Specificity", ylab="Sensitivity")
+abline(0, 1)
+  
+# Area under the curve
+(auc_log_reg = performance(pred_roc_log_reg, "auc")@y.values)
+
+```
+
+A classification table and an Area under the Receiver Operating Characteristic Curve (AUC-ROC) were used to assess the predictive ability for the risk of HF.Logistic Regression predicted HF with an accuracy score of 99.77%. It was also replicated ten times using a for-loop, and the accuracy means, and standard deviation means were calculated across ten test sets, yielding 99.86% and 0.000946 respectively. The rows of the classification table (confusion matrix) represent what the algorithm predicted, while the columns represent the actual results. Logistic Regression correctly classifies 689 out of 700 cases with no HF (0) while misclassifying only 2 out of 632 classes with an HF (1). The model's recall (ability to correctly detect) or sensitivity score is 99.86%, while the precision (ability to correctly predict) score for HF detection is 99.68. 99.71% is the True Positive Rate (Specificity) rating. Like the confusion matrix, the AUC-ROC curve also produced an accuracy score of 99.90%, indicating a good model performance in determining the response variable.
+
+# Validating the Assumptions of Logistic Regression using Variance Inflation Factor (VIF)
+```{r}
+vif(glm_hf_1)
+vif(glm_hf_1_3)
+```
+> vif(glm_hf_1_3)
+       age    alcohol       urea      hfref      hfnef   valvular congenital 
+  1.128311   1.675309   1.649066   3.372682   1.000001   1.567469   2.002700
+  
+On analyzing the VIF scores, the variables were found to have little to no multicollinearity amongst themselves, thereby validating the assumptions of logistic regression model
+
+
+# LOG REG WITH 10 - REPS
+```{r}
+
+for (i in 1:10)
+{
+  
+#Data Partioning
+sample = sample.split(heart_failure_new$heart_failure , SplitRatio = .80) # Split the data 
+heart_failure_train = subset(heart_failure_new, sample == TRUE) # Training data 
+heart_failure_test = subset(heart_failure_new, sample == FALSE) # Test data
+# dim(heart_failure_train) # Dimensions of train data
+# dim(heart_failure_test)  # Dimensions of test data
+
+# Apply the Logistic Regression classifier on training data
+
+glm_hf_1_3 = glm(heart_failure ~ . , data = heart_failure_train , family = binomial)
+
+# Prediction - on test data
+predict_heart_failure = predict(glm_hf_1_3, heart_failure_test , type = "response")
+
+# Set a prediction class
+pred_class_heart_failure = as.factor(ifelse(predict_heart_failure > 0.5 , 1,0))
+
+# Confusion matrix - Logistic Regression
+confusionMatrix(pred_class_heart_failure , heart_failure_test$heart_failure)
+
+# contingency table
+(table_hf = table(pred_class_heart_failure , heart_failure_test$heart_failure))
+
+# Accuracy
+#accuracy_log_reg_n = sum(diag(table_hf))/sum(table_hf)
+accuracy_log_reg_n[i] = sum(diag(table_hf))/sum(table_hf)
+
+}
+
+print(round(accuracy_log_reg_n,4)*100)   # Average accuracy of the Model
+#print(sd(accuracy_qda_n)) # Standard Deviation of the model
+
+sprintf("Log Reg  -  Average Accuracy : %s",
+        mean(round(accuracy_log_reg_n,4)*100))
+
+sprintf("Standard Deviation Logistic Regression : %s",
+        sd(accuracy_log_reg_n))
+
+```
+
+# Mean Accuracy of Logistic Regression using Binomial Link Function : 99.869
+# Mean Standard Deviation : 0.000946 ~= 0 
+
+
+# Interaction Effect
+
+
+```{r}
+
+
+heart_failure_new = heart_failure[,c(1,7,15,23,24,25,26,35)]
+str(heart_failure_new)
+
+
+# Data Partioning
+# set.seed(126) # Set the seed for model consistency 
+# sample = sample.split(heart_failure_new$heart_failure , SplitRatio = .80) # Split the data 
+# heart_failure_train = subset(heart_failure_new, sample == TRUE) # Training data 
+# heart_failure_test = subset(heart_failure_new, sample == FALSE) # Test data
+# dim(heart_failure_train) # Dimensions of train data
+# dim(heart_failure_test)  # Dimensions of test data
+
+# Logistic Regression on Training Data
+
+# 1. Interaction between Alcohol + Urea
+glm_hf_1_4 = glm(heart_failure ~  (alcohol * urea) + age + hfref + hfnef + valvular + congenital, data = heart_failure_train , family = binomial)
+summary(glm_hf_1_4)
+
+# Comment:  Interaction between Alcohol + Urea is not significant
+
+# 2. Interaction between Hfref * Hfnef
+glm_hf_1_5 = glm(heart_failure ~  alcohol + urea + age + (hfref * hfnef) + valvular + congenital, data = heart_failure_train , family = binomial)
+summary(glm_hf_1_5)
+
+# Comment:  Interaction between Hfref * Hfnef is not significant
+
+# 3. Interaction between valvular and congenital
+
+glm_hf_1_6 = glm(heart_failure ~  alcohol + urea + age + hfref + hfnef + (valvular * congenital), data = heart_failure_train , family = binomial)
+summary(glm_hf_1_6)
+
+```
+
+# The effect of interaction, between alcohol and urea, hfref and hfnef as well as valvular and congenital were studied. The interaction elements were found to have no impact on heart failure (the p-values were found to be not different from zero) and hence were not included in the analysis.
+
+alcohol1:urea :        p-value =  0.359618
+hfref1:hfnef1 :        p-value =   0.99956 
+valvular1:congenital1: p-value =   0.99975 
+
+=======================================================================================================================================
+
+#Prediction with a threshold of 0.6
+```{r}
+# Prediction - on test data
+predict_heart_failure = predict(glm_hf_1_3, heart_failure_test , type = "response")
+
+# Set a prediction class
+pred_class_heart_failure = as.factor(ifelse(predict_heart_failure > 0.6 , 1,0))
+
+# Confusion matrix - Logistic Regression
+confusionMatrix(pred_class_heart_failure , heart_failure_test$heart_failure)
+
+# Contingency Table
+(table_hf = table(pred_class_heart_failure , heart_failure_test$heart_failure))
+
+# Accuracy
+(accuracy_log_reg = sum(diag(table_hf))/sum(table_hf)*100)
+
+# ROC PLOT - LOGISTIC REGRESSION 
+pred_roc_log_reg = prediction(predict_heart_failure , heart_failure_test$heart_failure)  
+perf = performance(pred_roc_log_reg, "tpr", "fpr")
+plot(perf, col = "red", main="ROC curve - Logistic Regression ", xlab= "Specificity", ylab="Sensitivity")
+abline(0, 1)
+  
+# Area under the curve
+(auc_log_reg = performance(pred_roc_log_reg, "auc")@y.values)
+
+```
+Changing the probability threshold to 0.6 , also induced excllent results in predicting the accuracy of HF.
+
+# Overdispersion : Overdispersion is usually not modelled for ungrouped data due to it's probabilities lying between the threshold of 0 and 1.
